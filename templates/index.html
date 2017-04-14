@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% import "bootstrap/wtf.html" as wtf %}
+
+{% block title %}Near-synonyms by similarity in word2vec{% endblock %}
+
+{% block page_content %}
+<div class="page-header">
+    <h1>Near-synonyms by similarity in word2vec</h1>
+</div>
+{{ wtf.quick_form(form) }}
+{% endblock %}
