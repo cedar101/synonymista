@@ -9,6 +9,7 @@ from flask import Flask, render_template, session, redirect, url_for, request #,
 # from flask_script import Manager
 from flask_bootstrap import Bootstrap
 from flask_wtf import FlaskForm
+#from flask_wtf.csrf import CSRFProtect
 from flask_pony import Pony
 from wtforms import validators, StringField, SubmitField
 from wtforms_components import SelectMultipleField
@@ -27,7 +28,8 @@ StreamHandler(sys.stdout).push_application()
 redirect_logging()
 
 DEBUG = True
-SECRET_KEY = 'development'
+SECRET_KEY = 'development-key'
+WTF_CSRF_ENABLED = False
 
 DB_TYPE = 'mysql'
 DB_PORT = 3306
@@ -41,13 +43,14 @@ app = Flask(__name__)
 app.config.from_object(__name__)
 
 # manager = Manager(app)
+#csrf = CSRFProtect(app)
 bootstrap = Bootstrap(app)
 orm = Pony(app)
 db = orm.get_db()
 #db.sql_debug(DEBUG)
 
 # '../models/wiki_dmpv_1000_no_taginfo_word2vec_format.bin'
-word_model_filename = '../models/wiki_dmpv_100_no_taginfo_user_dic_word2vec_format.bin' # sys.argv[1]
+word_model_filename = 'models/wiki_dmpv_100_no_taginfo_user_dic_word2vec_format.bin' # sys.argv[1]
 
 @app.before_first_request
 def setup_model(*args, **kwargs):
@@ -145,17 +148,15 @@ def internal_server_error(e):
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    import pdb; pdb.set_trace()
-    form = WordSimilarityForm(request.args) #data=locals()) #{'word': word, 'similar_words': selected(word)})
+    form = WordSimilarityForm() #data=locals()) #{'word': word, 'similar_words': selected(word)})
 
     if form.validate_on_submit():
-        session['word'] = form.word.data
-        return redirect(url_for('index'))
+        session['word'] = word = form.word.data
+        return redirect(url_for('index', word=word))
 
-    form.word.data = request.args.get('word')
-    form.similar_words.choices = (functools.partial(similarites, form.word.data)
-                                  if form.word.data
-                                  else [])
+    word = form.word.data = request.args.get('word')
+    form.similar_words.choices = (functools.partial(similarites, word)
+                                  if word else [])
     form.similar_words.data = [] #selected(word) if form.word.data else []
 
     return render_template('index.html', form=form) #, word=session.get('word'))
