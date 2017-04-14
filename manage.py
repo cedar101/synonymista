@@ -35,7 +35,7 @@ DB_TYPE = 'mysql'
 DB_PORT = 3306
 DB_HOST = 'localhost'
 DB_USER = 'root'
-DB_PASSWORD = None
+DB_PASSWORD = 'digital'
 DB_NAME = 'synonymista'
 DB_CHARSET = 'utf8'
 
