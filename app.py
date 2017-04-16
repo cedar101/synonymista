@@ -139,7 +139,6 @@ class ThreeColumnCheckboxWidget(object):
                f'<th class="col-md-1">{self.col2header}</th></thead>'
                '<tbody>')
         for value, label, checked in self.field.iter_choices():
-            import pdb; pdb.set_trace()
             choice_id = f'{field_id}-{label}'
             options = dict(self.kwargs, style="height:auto;",
                            name=self.field.name, value=value, id=choice_id)
