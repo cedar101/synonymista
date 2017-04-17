@@ -5,7 +5,7 @@ import sys
 # import pickle
 # from functools import partial
 
-from flask import Flask, render_template, session, redirect, url_for, request #, flash, current_app)
+from flask import Flask, render_template, session, redirect, url_for, request, flash #, current_app)
 from flask_debugtoolbar import DebugToolbarExtension
 from flask_bootstrap import Bootstrap
 from flask_pony import Pony
@@ -22,7 +22,8 @@ from pony.orm import db_session, select, sql_debug, Database, Set, Required
 
 from gensim.models.keyedvectors import KeyedVectors
 
-from logbook import StreamHandler
+from logging import getLogger
+from logbook import Logger, StreamHandler
 from logbook.compat import redirect_logging
 
 StreamHandler(sys.stdout).push_application()
@@ -74,7 +75,7 @@ def generate_mapping():
 def get_similar_words(word, top_n=10):
     #return app.word_model.most_similar(word, topn=top_n)
     return [(f'{word}={similarity}', word)
-            for word, similarity in app.word_model.most_similar(word, topn=top_n)]
+                for word, similarity in app.word_model.most_similar(word, topn=top_n)]
 
 
 def coerce_word_similarity(s):
@@ -119,7 +120,6 @@ def get_selected_words(word_value):
                               for word in Word
                               for wordsim in word.similar_to
                               if word.value == word_value)[:]
-    #import pdb; pdb.set_trace()
     return word_similarites
 
 
@@ -187,8 +187,13 @@ def internal_server_error(e):
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    log = getLogger('index')
+
     form = WordSimilarityForm()
     #form.similar_words.choices = []
+
+    log.debug(f'choices: {form.similar_words.choices}')
+    log.debug(f'data: {form.similar_words.data}')
 
     if form.validate_on_submit():
         session['word'] = word = form.word.data
@@ -197,12 +202,17 @@ def index():
 
     word = form.word.data = request.args.get('word')
     # form.similar_words.choices = partial(get_similar_words, word)
-    form.similar_words.choices = get_similar_words(word) if word else []
-    form.similar_words.data = get_selected_words(word) if word else []
+    try:
+        form.similar_words.choices = get_similar_words(word) if word else []
+    except KeyError as e:
+        flash(str(e))
+        form.similar_words.choices = []
+    else:
+        form.similar_words.data = get_selected_words(word) if form.similar_words.choices else []
 
-    return render_template('index.html', form=form)
-                        #    word=session.get('word'),
-                        #    similar_words=session.get('smilar_words'))
+    return render_template('index.html', form=form,
+                           word=session.get('word'),
+                           similar_words=session.get('similar_words'))
 
 
 # if __name__ == '__main__':
