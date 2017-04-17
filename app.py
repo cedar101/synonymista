@@ -3,7 +3,7 @@
 import sys
 # import logging
 # import pickle
-import functools
+# from functools import partial
 
 from flask import Flask, render_template, session, redirect, url_for, request #, flash, current_app)
 from flask_debugtoolbar import DebugToolbarExtension
@@ -12,8 +12,8 @@ from flask_pony import Pony
 from flask_wtf import FlaskForm
 #from flask_wtf.csrf import CSRFProtect
 
-from wtforms import validators, SubmitField, StringField #, SelectMultipleField
-from wtforms_components import SelectMultipleField
+from wtforms import validators, SubmitField, StringField, SelectMultipleField
+# from wtforms_components import SelectMultipleField
 from wtforms.widgets import html_params #, CheckboxInput, ListWidget, TableWidget
 
 import click
@@ -77,6 +77,13 @@ def get_similar_words(word, top_n=10):
             for word, similarity in app.word_model.most_similar(word, topn=top_n)]
 
 
+def coerce_word_similarity(s):
+    # import pdb; pdb.set_trace()
+    word, similarity_string = s.split('=')
+    similarity = float(similarity_string)
+    return word, similarity
+
+
 class Word(db.Entity):
     _table_ = 'word'
     value = Required(str, unique=True)
@@ -108,7 +115,7 @@ def initdb():
 
 @db_session
 def get_selected_words(word_value):
-    word_similarites = select((wordsim.value, wordsim.similar_word.value) #, True)
+    word_similarites = select((wordsim.similar_word.value, wordsim.value)
                               for word in Word
                               for wordsim in word.similar_to
                               if word.value == word_value)[:]
@@ -116,11 +123,7 @@ def get_selected_words(word_value):
     return word_similarites
 
 
-def coerce_word_similarity(s):
-    # import pdb; pdb.set_trace()
-    word, similarity_string = s.split('=')
-    similarity = float(similarity_string)
-    return word, similarity
+
 
 
 class ThreeColumnCheckboxWidget(object):
@@ -161,7 +164,7 @@ class ThreeColumnCheckboxWidget(object):
 
 class WordSimilarityForm(FlaskForm):
     word = StringField('Word', validators=[validators.Required()])
-    similar_words = SelectMultipleField('Similar words', # choices=[],
+    similar_words = SelectMultipleField('Similar words',
                                         coerce=coerce_word_similarity,
                                         # validators=[validators.optional()],
                                         widget=ThreeColumnCheckboxWidget(
@@ -193,6 +196,7 @@ def index():
         return redirect(url_for('index', word=word, similar_words=similar_words))
 
     word = form.word.data = request.args.get('word')
+    # form.similar_words.choices = partial(get_similar_words, word)
     form.similar_words.choices = get_similar_words(word) if word else []
     form.similar_words.data = get_selected_words(word) if word else []
 
