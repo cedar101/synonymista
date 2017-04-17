@@ -4,6 +4,7 @@ import sys
 # import logging
 # import pickle
 # from functools import partial
+from contextlib import suppress
 
 from flask import Flask, render_template, session, redirect, url_for, request, flash #, current_app)
 from flask_debugtoolbar import DebugToolbarExtension
@@ -18,7 +19,7 @@ from wtforms.widgets import html_params #, CheckboxInput, ListWidget, TableWidge
 
 import click
 
-from pony.orm import db_session, select, sql_debug, Database, Set, Required
+from pony.orm import db_session, commit, select, sql_debug, Set, Optional, Required
 
 from gensim.models.keyedvectors import KeyedVectors
 
@@ -80,6 +81,8 @@ def get_similar_words(word, top_n=10):
 
 def coerce_word_similarity(s):
     # import pdb; pdb.set_trace()
+    # log = getLogger('coerce')
+    # log.debug(s)
     word, similarity_string = s.split('=')
     similarity = float(similarity_string)
     return word, similarity
@@ -95,7 +98,7 @@ class Word(db.Entity):
 class WordSimilarity(db.Entity):
     _table_ = 'word_similarity'
     value = Required(float)
-    subject_word = Required(Word, reverse='similar_to')
+    subject_word = Optional(Word, reverse='similar_to')
     similar_word = Required(Word, reverse='similar_from')
 
 
@@ -108,10 +111,12 @@ app.config.update({
 @app.cli.command()
 def initdb():
     """Initialize the database."""
-    click.echo('Init the db!')
-    db.drop_table('word', if_exists=True)
-    db.drop_table('word_similarity', if_exists=True)
+    click.confirm('Initing the db! Do you want to continue?', abort=True)
+    # db.drop_table('word', if_exists=True, with_all_data=True)
+    # db.drop_table('word_similarity', if_exists=True, with_all_data=True)
     db.generate_mapping(create_tables=True)
+    click.echo('Inited the db.')
+
 
 
 @db_session
@@ -123,7 +128,16 @@ def get_selected_words(word_value):
     return word_similarites
 
 
-
+@db_session
+def save_selected_words(word_value, selected_data):
+    word = Word.get(value=word_value) or Word(value=word_value)
+    word.similar_to = [(WordSimilarity.get(value=sim,
+                                           similar_word=(Word.get(value=w)
+                                                         or Word(value=w)))
+                        or WordSimilarity(value=sim,
+                                          similar_word=(Word.get(value=w)
+                                                       or Word(value=w))))
+                            for w, sim in selected_data]
 
 
 class ThreeColumnCheckboxWidget(object):
@@ -185,34 +199,42 @@ def internal_server_error(e):
     return render_template('500.html'), 500
 
 
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     log = getLogger('index')
-
+    word = request.args.get('word')
     form = WordSimilarityForm()
-    #form.similar_words.choices = []
+    form.similar_words.pre_validate = no_validate
 
-    log.debug(f'choices: {form.similar_words.choices}')
-    log.debug(f'data: {form.similar_words.data}')
-
-    if form.validate_on_submit():
-        session['word'] = word = form.word.data
-        session['similar_words'] = similar_words = form.similar_words.data
-        return redirect(url_for('index', word=word, similar_words=similar_words))
-
-    word = form.word.data = request.args.get('word')
-    # form.similar_words.choices = partial(get_similar_words, word)
     try:
+        # form.similar_words.choices = partial(get_similar_words, word)
         form.similar_words.choices = get_similar_words(word) if word else []
     except KeyError as e:
         flash(str(e))
         form.similar_words.choices = []
-    else:
-        form.similar_words.data = get_selected_words(word) if form.similar_words.choices else []
 
-    return render_template('index.html', form=form,
-                           word=session.get('word'),
-                           similar_words=session.get('similar_words'))
+    log.debug(f'choices = {form.similar_words.choices}')
+    log.debug(f'data = {form.similar_words.data}')
+
+    if form.submit.data and form.validate_on_submit():
+        # session['word'] =
+        word = form.word.data
+        # session['similar_words'] =
+        similar_words = [coerce_word_similarity(ws) for ws in form.similar_words.data]
+
+        save_selected_words(word, similar_words)
+
+        return redirect(url_for('index', word=word, similar_words=similar_words))
+
+    form.word.data = word
+    form.similar_words.data = get_selected_words(word) if form.similar_words.choices else []
+    log.debug(f'data = {form.similar_words.data}')
+
+    return render_template('index.html', form=form)
+                        #    word=session.get('word'),
+                        #    similar_words=session.get('similar_words'))
 
 
 # if __name__ == '__main__':
