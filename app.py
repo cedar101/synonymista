@@ -19,7 +19,7 @@ from wtforms.widgets import html_params #, CheckboxInput, ListWidget, TableWidge
 
 import click
 
-from pony.orm import db_session, commit, select, sql_debug, Set, Optional, Required
+from pony.orm import db_session, commit, select, delete, sql_debug, Set, Optional, Required
 
 from gensim.models.keyedvectors import KeyedVectors
 
@@ -88,14 +88,22 @@ def coerce_word_similarity(s):
     return word, similarity
 
 
-class Word(db.Entity):
+class GetCreateMixin():
+    @classmethod
+    def get_or_create(cls, **params):
+        o = cls.get(**params)
+        if o:
+            return o
+        return cls(**params)
+
+class Word(db.Entity, GetCreateMixin):
     _table_ = 'word'
     value = Required(str, unique=True)
     similar_to = Set('WordSimilarity', reverse='subject_word')
     similar_from = Set('WordSimilarity', reverse='similar_word')
 
 
-class WordSimilarity(db.Entity):
+class WordSimilarity(db.Entity, GetCreateMixin):
     _table_ = 'word_similarity'
     value = Required(float)
     subject_word = Optional(Word, reverse='similar_to')
@@ -125,18 +133,17 @@ def get_selected_words(word_value):
                               for word in Word
                               for wordsim in word.similar_to
                               if word.value == word_value)[:]
-    return word_similarites
+    return word_similarites if word_similarites else []
 
 
 @db_session
 def save_selected_words(word_value, selected_data):
-    word = Word.get(value=word_value) or Word(value=word_value)
-    word.similar_to = [(WordSimilarity.get(value=sim,
-                                           similar_word=(Word.get(value=w)
-                                                         or Word(value=w)))
-                        or WordSimilarity(value=sim,
-                                          similar_word=(Word.get(value=w)
-                                                       or Word(value=w))))
+    delete(wsim for w in Word for wsim in w.similar_to if w.value == word_value)
+    word = Word.get_or_create(value=word_value)
+    word.similar_to = [WordSimilarity.get_or_create(
+                                        value=sim,
+                                        similar_word=Word.get_or_create(value=w)
+                                      )
                             for w, sim in selected_data]
 
 
@@ -174,18 +181,24 @@ class ThreeColumnCheckboxWidget(object):
         return ''.join(self)
 
 
+class SelectMultipleFieldWOPreValidate(SelectMultipleField):
+    """docstring for SelectMultipleFieldWOPreValidate."""
+    def pre_validate(self, form):
+        return None
 
 
 class WordSimilarityForm(FlaskForm):
     word = StringField('Word', validators=[validators.Required()])
-    similar_words = SelectMultipleField('Similar words',
-                                        coerce=coerce_word_similarity,
-                                        # validators=[validators.optional()],
-                                        widget=ThreeColumnCheckboxWidget(
-                                                'Word', 'Similarity',
-                                                'Synonym?',
-                                                'table table_condensed'
-                                        ))
+    similar_words = SelectMultipleFieldWOPreValidate(
+                        'Similar words',
+                        coerce=coerce_word_similarity,
+                        # validators=[validators.optional()],
+                        widget=ThreeColumnCheckboxWidget(
+                                'Word', 'Similarity',
+                                'Synonym?',
+                                'table table_condensed'
+                        )
+                    )
     submit = SubmitField('Submit')
 
 
@@ -206,7 +219,7 @@ def index():
     log = getLogger('index')
     word = request.args.get('word')
     form = WordSimilarityForm()
-    form.similar_words.pre_validate = no_validate
+    #form.similar_words.pre_validate = no_validate
 
     try:
         # form.similar_words.choices = partial(get_similar_words, word)
@@ -222,14 +235,13 @@ def index():
         # session['word'] =
         word = form.word.data
         # session['similar_words'] =
-        similar_words = [coerce_word_similarity(ws) for ws in form.similar_words.data]
-
+        similar_words = form.similar_words.data # [coerce_word_similarity(ws) for ws in form.similar_words.data]
         save_selected_words(word, similar_words)
-
+        log.debug(similar_words) 
         return redirect(url_for('index', word=word, similar_words=similar_words))
 
     form.word.data = word
-    form.similar_words.data = get_selected_words(word) if form.similar_words.choices else []
+    form.similar_words.data = get_selected_words(word) # if form.similar_words.choices else []
     log.debug(f'data = {form.similar_words.data}')
 
     return render_template('index.html', form=form)
