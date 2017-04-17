@@ -5,8 +5,9 @@ import sys
 # import pickle
 # from functools import partial
 from contextlib import suppress
+import json
 
-from flask import Flask, render_template, session, redirect, url_for, request, flash #, current_app)
+from flask import Flask, render_template, session, redirect, url_for, request, flash, send_file, Response
 from flask_debugtoolbar import DebugToolbarExtension
 from flask_bootstrap import Bootstrap
 from flask_pony import Pony
@@ -20,6 +21,7 @@ from wtforms.widgets import html_params #, CheckboxInput, ListWidget, TableWidge
 import click
 
 from pony.orm import db_session, commit, select, delete, sql_debug, Set, Optional, Required
+from pony.orm.serialization import to_dict
 
 from gensim.models.keyedvectors import KeyedVectors
 
@@ -211,9 +213,6 @@ def page_not_found(e):
 def internal_server_error(e):
     return render_template('500.html'), 500
 
-
-
-
 @app.route('/', methods=['GET', 'POST'])
 def index():
     log = getLogger('index')
@@ -237,7 +236,7 @@ def index():
         # session['similar_words'] =
         similar_words = form.similar_words.data # [coerce_word_similarity(ws) for ws in form.similar_words.data]
         save_selected_words(word, similar_words)
-        log.debug(similar_words) 
+        log.debug(similar_words)
         return redirect(url_for('index', word=word, similar_words=similar_words))
 
     form.word.data = word
@@ -249,5 +248,13 @@ def index():
                         #    similar_words=session.get('similar_words'))
 
 
+@app.route('/download-all', methods=['GET', 'POST'])
+#@db_session
+def download_all():
+    with db_session:
+        content = str(select((w, w.value, wsim, wsim.value, wsw.value) for w in Word for wsim in w.similar_to for wsw in wsim.similar_word)[:])
+    return Response(content,
+            mimetype='text/plain',
+            headers={'Content-Disposition':'attachment;filename=words.pydump'})
 # if __name__ == '__main__':
 #     manager.run()
